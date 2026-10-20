@@ -470,6 +470,7 @@ class FunctionTool(Tool):
         """Validate arguments and execute the body, applying any timeout."""
         try:
             if self.timeout is not None:
+                scope = None
                 try:
                     with anyio.fail_after(self.timeout) as scope:
                         result = await self._execute(
@@ -480,6 +481,11 @@ class FunctionTool(Tool):
                         if anyio.current_time() >= scope.deadline:
                             raise TimeoutError
                 except TimeoutError:
+                    if scope is None or (
+                        not scope.cancelled_caught
+                        and anyio.current_time() < scope.deadline
+                    ):
+                        raise
                     logger.warning(
                         f"Tool '{self.name}' timed out after {self.timeout}s. "
                         f"Consider using task=True for long-running operations. "

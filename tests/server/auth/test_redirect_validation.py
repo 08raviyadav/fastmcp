@@ -357,6 +357,68 @@ class TestQueryMatching:
         assert not validate_redirect_uri("https://app.example.com/cb", patterns)
 
 
+class TestFragmentMatching:
+    """A redirect URI must not carry a fragment (RFC 6749 §3.1.2).
+
+    The redirection endpoint URI "MUST NOT include a fragment
+    component", so a registered pattern never has one and a candidate
+    that adds one is not the registered URI — the same class of gap as
+    #5999, where the query was ignored. Unlike the query check, this
+    applies to loopback patterns too: RFC 8252 §7.3 flexibility covers
+    the port (and, in this function, the query), not the fragment.
+    """
+
+    def test_fragment_only_addition_rejected(self):
+        """The reviewer's repro: a fragment-only addition matched."""
+        assert not matches_allowed_pattern(
+            "https://app.example.com/cb#evil",
+            "https://app.example.com/cb",
+        )
+
+    def test_query_and_fragment_rejected(self):
+        """A fragment is rejected even when the query matches exactly."""
+        assert not matches_allowed_pattern(
+            "https://app.example.com/cb?x=1#frag",
+            "https://app.example.com/cb?x=1",
+        )
+
+    def test_empty_query_matches_queryless_pattern(self):
+        """`...?` carries an empty query, equal to a query-less pattern's.
+
+        `urlparse(...).query` is `''` for both, so this is allowed and
+        pinned here to document the choice.
+        """
+        assert matches_allowed_pattern(
+            "https://app.example.com/cb?",
+            "https://app.example.com/cb",
+        )
+
+    def test_loopback_fragment_rejected(self):
+        """Loopback flexibility does not extend to fragments."""
+        assert not matches_allowed_pattern(
+            "http://localhost:3000/callback#frag",
+            "http://localhost:*",
+        )
+        assert not matches_allowed_pattern(
+            "http://localhost:3000/callback?x=1#frag",
+            "http://localhost:*",
+        )
+
+    def test_fragmentless_uri_still_matches(self):
+        assert matches_allowed_pattern(
+            "https://app.example.com/cb?x=1",
+            "https://app.example.com/cb?x=1",
+        )
+        assert matches_allowed_pattern(
+            "http://localhost:3000/callback?x=1",
+            "http://localhost:*",
+        )
+
+    def test_validate_redirect_uri_rejects_fragment(self):
+        patterns = ["https://app.example.com/cb"]
+        assert not validate_redirect_uri("https://app.example.com/cb#evil", patterns)
+
+
 class TestValidateRedirectUri:
     """Test redirect URI validation with pattern lists."""
 

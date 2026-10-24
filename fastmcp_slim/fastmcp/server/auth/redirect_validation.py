@@ -315,6 +315,10 @@ def matches_allowed_pattern(uri: str, pattern: str) -> bool:
     pattern's query exactly (RFC 6749 §3.1.2); loopback patterns do not
     compare queries, keeping their RFC 8252 §7.3 flexibility.
 
+    A redirect URI must not carry a fragment at all (RFC 6749 §3.1.2),
+    so a registered pattern never has one and any URI with a fragment
+    is rejected, loopback patterns included.
+
     Security: Rejects URIs with userinfo (user:pass@host) which could bypass
     naive string matching (e.g., http://localhost@evil.com).
 
@@ -375,6 +379,16 @@ def matches_allowed_pattern(uri: str, pattern: str) -> bool:
     if not is_loopback_host(pattern_host):
         if uri_parsed.query != pattern_parsed.query:
             return False
+
+    # RFC 6749 §3.1.2: a redirection endpoint URI MUST NOT include a
+    # fragment component, so a registered pattern never has one and a
+    # candidate carrying one is not the registered URI. This applies to
+    # loopback patterns too — the RFC 8252 §7.3 flexibility covers the
+    # port (and, in this function, the query), not the fragment — and
+    # matches _matches_registered_loopback_redirect_uri, which also
+    # requires fragment equality.
+    if uri_parsed.fragment:
+        return False
 
     # Path must match (with fnmatch wildcards)
     return _match_path(uri_parsed.path, pattern_parsed.path)

@@ -293,10 +293,11 @@ class TestQueryMatching:
     """The query component is part of the registered redirect URI.
 
     RFC 6749 §3.1.2 requires the redirect URI to match the registered one
-    by simple string comparison, so for non-loopback patterns a URI that
-    adds, drops, or changes query parameters does not match. Loopback
-    patterns keep the flexibility RFC 8252 §7.3 already gives them for
-    ports, so their query is not compared.
+    by simple string comparison, so a URI that adds, drops, or changes
+    query parameters does not match — unless the pattern is a wildcard
+    pattern with no query of its own, in which case any query is
+    accepted. There is no loopback special case: a pattern that carries
+    a query, or that has no wildcard at all, always compares queries.
     """
 
     def test_pattern_without_query_rejects_added_query(self):
@@ -327,25 +328,51 @@ class TestQueryMatching:
             "https://app.example.com/cb?b=2&a=1", pattern
         )
 
-    def test_wildcard_host_pattern_still_compares_query(self):
-        assert not matches_allowed_pattern(
-            "https://app.example.com/callback?tenant=acme",
-            "https://*.example.com/callback",
-        )
+    def test_wildcard_pattern_with_query_still_compares_query(self):
+        """A wildcard pattern that carries a query compares it exactly."""
         assert matches_allowed_pattern(
             "https://app.example.com/callback?tenant=acme",
             "https://*.example.com/callback?tenant=acme",
         )
+        assert not matches_allowed_pattern(
+            "https://app.example.com/callback?tenant=other",
+            "https://*.example.com/callback?tenant=acme",
+        )
 
-    def test_loopback_pattern_does_not_compare_query(self):
-        """Loopback patterns retain their RFC 8252 flexibility."""
+    def test_wildcard_pattern_without_query_accepts_any_query(self):
+        """A wildcard pattern with no query of its own accepts any query.
+
+        Operators using wildcard patterns (e.g. `https://*.example.com/*`)
+        would otherwise break silently when a client adds a query.
+        """
+        assert matches_allowed_pattern(
+            "https://app.example.com/callback?tenant=acme",
+            "https://*.example.com/callback",
+        )
+        assert matches_allowed_pattern(
+            "https://app.example.com/auth/callback?code_challenge=abc",
+            "https://*.example.com/auth/*",
+        )
+
+    def test_loopback_pattern_without_wildcard_compares_query(self):
+        """No loopback special case: a non-wildcard loopback pattern
+        carrying a query compares it exactly."""
+        assert not matches_allowed_pattern(
+            "http://localhost:3000/callback?x=2",
+            "http://localhost/callback?x=1",
+        )
+        assert matches_allowed_pattern(
+            "http://localhost:3000/callback?x=1",
+            "http://localhost/callback?x=1",
+        )
+
+    def test_loopback_wildcard_pattern_accepts_any_query(self):
+        """`http://localhost:*` is a wildcard pattern without a query,
+        so it still accepts any query — the RFC 8252 §7.3 port
+        flexibility for native clients is unchanged."""
         assert matches_allowed_pattern(
             "http://localhost:3000/callback?code_challenge=abc",
             "http://localhost:*",
-        )
-        assert matches_allowed_pattern(
-            "http://localhost:3000/callback?x=2",
-            "http://localhost/callback?x=1",
         )
 
     def test_validate_redirect_uri_with_query_patterns(self):
@@ -365,7 +392,7 @@ class TestFragmentMatching:
     that adds one is not the registered URI — the same class of gap as
     #5999, where the query was ignored. Unlike the query check, this
     applies to loopback patterns too: RFC 8252 §7.3 flexibility covers
-    the port (and, in this function, the query), not the fragment.
+    the port, not the fragment.
     """
 
     def test_fragment_only_addition_rejected(self):
